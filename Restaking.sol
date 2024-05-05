@@ -2,72 +2,143 @@ pragma solidity ^0.8.0;
 
 interface IERC20 {
     function transfer(address recipient, uint256 amount) external returns (bool);
-    function balanceOf(address account) external view returns (uint256);
     function transferFrom(address sender, address recipient, uint256 amount) external returns (bool);
-    function approve(address spender, uint256 amount) external returns (bool);
 }
 
 contract StakingContract {
     address public admin;
-    mapping(address => uint256) public rewards;
-    mapping(address => uint256) public stakedAmounts;
-    mapping(address => uint256) public lastStakeTime;
+
+    struct TokenData {
+        uint256 stakedAmount;
+        uint256 lastStakeTime;
+        uint256 rewardPoints;
+    }
+
+    mapping(address => TokenData) public stEthData;
+    mapping(address => TokenData) public cbEthData;
+    mapping(address => TokenData) public bEthData;
+    
     uint256 public constant MIN_LOCKUP_PERIOD = 30 days; // Minimum lock-up period in seconds
 
     // Token addresses
-    address public stETHAddress;
-    address public cbETHAddress;
-    address public bethAddress;
+    address public stEthAddress;
+    address public cbEthAddress;
+    address public bEthAddress;
+    uint256 public rewardRate;
 
     modifier onlyAdmin() {
         require(msg.sender == admin, "Only admin can call this function");
         _;
     }
 
-    constructor(address _admin, address _stETHAddress, address _cbETHAddress, address _bethAddress) {
+    constructor(address _admin, address _stEthAddress, address _cbEthAddress, address _bEthAddress, uint256 _rewardRate) {
         admin = _admin;
-        stETHAddress = _stETHAddress;
-        cbETHAddress = _cbETHAddress;
-        bethAddress = _bethAddress;
+        stEthAddress = _stEthAddress;
+        cbEthAddress = _cbEthAddress;
+        bEthAddress = _bEthAddress;
+        rewardRate = _rewardRate;
     }
 
-    function stake(uint256 amount, address tokenAddress) external {
-        require(tokenAddress == stETHAddress || tokenAddress == cbETHAddress || tokenAddress == bethAddress, "Invalid token address");
+    function updateRewardPoints(address _user) public {
+        TokenData storage DataStEth = stEthData[_user];
+        TokenData storage DataCbEth = cbEthData[_user];
+        TokenData storage DataBEth = bEthData[_user];
+        if(DataStEth.stakedAmount != 0){
+            uint256 timeStaked = block.timestamp - DataStEth.lastStakeTime;
+             DataStEth.rewardPoints = (timeStaked * DataStEth.stakedAmount * rewardRate) / 1e18;
+        }
+        if(DataCbEth.stakedAmount != 0){
+            uint256 timeStaked = block.timestamp - DataCbEth.lastStakeTime;
+            DataCbEth.rewardPoints = (timeStaked * DataCbEth.stakedAmount * rewardRate) / 1e18;
+        }
+        if(DataBEth.stakedAmount != 0){
+            uint256 timeStaked = block.timestamp - DataBEth.lastStakeTime;
+            DataBEth.rewardPoints = (timeStaked * DataBEth.stakedAmount * rewardRate) / 1e18;
+        }    
+    } 
 
-        // Transfer tokens from user to contract
-        require(IERC20(tokenAddress).transferFrom(msg.sender, address(this), amount), "Transfer failed");
+    function stakeStEth(uint256 amount) external {
+        // Transfer stETH tokens from user to contract
+        require(IERC20(stEthAddress).transferFrom(msg.sender, address(this), amount), "Transfer failed");
 
         // Update staked amount and last stake time
-        stakedAmounts[msg.sender] += amount;
-        lastStakeTime[msg.sender] = block.timestamp;
+        stEthData[msg.sender].stakedAmount += amount;
+        stEthData[msg.sender].lastStakeTime = block.timestamp;
+        updateRewardPoints(msg.sender);
     }
 
-    function withdraw() external {
-        require(stakedAmounts[msg.sender] > 0, "No staked amount");
-        require(block.timestamp >= lastStakeTime[msg.sender] + MIN_LOCKUP_PERIOD, "Minimum lock-up period not reached");
+    function stakeCbEth(uint256 amount) external {
+        // Transfer cbETH tokens from user to contract
+        require(IERC20(cbEthAddress).transferFrom(msg.sender, address(this), amount), "Transfer failed");
+
+        // Update staked amount and last stake time
+        cbEthData[msg.sender].stakedAmount += amount;
+        cbEthData[msg.sender].lastStakeTime = block.timestamp;
+        updateRewardPoints(msg.sender);
+    }
+
+    function stakeBEth(uint256 amount) external {
+        // Transfer bETH tokens from user to contract
+        require(IERC20(bEthAddress).transferFrom(msg.sender, address(this), amount), "Transfer failed");
+
+        // Update staked amount and last stake time
+        bEthData[msg.sender].stakedAmount += amount;
+        bEthData[msg.sender].lastStakeTime = block.timestamp;
+        updateRewardPoints(msg.sender);
+    }
+
+    function withdrawStEth(uint256 amount) external {
+        TokenData storage data = stEthData[msg.sender];
+        require(data.stakedAmount >= amount, "Insufficient staked amount");
+        require(block.timestamp >= data.lastStakeTime + MIN_LOCKUP_PERIOD, "Minimum lock-up period not reached");
 
         // Transfer staked tokens back to user
-        uint256 amount = stakedAmounts[msg.sender];
-        stakedAmounts[msg.sender] = 0;
-        require(IERC20(stETHAddress).transfer(msg.sender, amount), "Transfer failed");
-
-        // Reset rewards
-        rewards[msg.sender] = 0;
+        data.stakedAmount -= amount;
+        updateRewardPoints(msg.sender);
+        require(IERC20(stEthAddress).transfer(msg.sender, amount), "Transfer failed");
     }
 
-    function claimReward() external {
-        uint256 timeStaked = block.timestamp - lastStakeTime[msg.sender];
-        uint256 reward = timeStaked * 1; // Reward rate, adjust as needed
-        rewards[msg.sender] += reward;
+    function withdrawCbEth(uint256 amount) external {
+
+        TokenData storage data = cbEthData[msg.sender];
+        require(data.stakedAmount >= amount, "Insufficient staked amount");
+        require(block.timestamp >= data.lastStakeTime + MIN_LOCKUP_PERIOD, "Minimum lock-up period not reached");
+
+        // Transfer staked tokens back to user
+        data.stakedAmount -= amount;
+        updateRewardPoints(msg.sender);
+        require(IERC20(cbEthAddress).transfer(msg.sender, amount), "Transfer failed");
+    }
+
+    function withdrawBEth(uint256 amount) external {
+        TokenData storage data = bEthData[msg.sender];
+        require(data.stakedAmount >= amount, "Insufficient staked amount");
+        require(block.timestamp >= data.lastStakeTime + MIN_LOCKUP_PERIOD, "Minimum lock-up period not reached");
+
+        // Transfer staked tokens back to user
+        data.stakedAmount -= amount;
+        updateRewardPoints(msg.sender);
+        require(IERC20(bEthAddress).transfer(msg.sender, amount), "Transfer failed");
     }
 
     function setAdmin(address _admin) external onlyAdmin {
         admin = _admin;
     }
 
-    function setTokenAddresses(address _stETHAddress, address _cbETHAddress, address _bethAddress) external onlyAdmin {
-        stETHAddress = _stETHAddress;
-        cbETHAddress = _cbETHAddress;
-        bethAddress = _bethAddress;
+    function setStEthAddress(address _stEthAddress) external onlyAdmin {
+        stEthAddress = _stEthAddress;
+    }
+
+    function setCbEthAddress(address _cbEthAddress) external onlyAdmin {
+        cbEthAddress = _cbEthAddress;
+    }
+
+    function setBEthAddress(address _bEthAddress) external onlyAdmin {
+        bEthAddress = _bEthAddress;
+    }
+
+    
+    function setRewardRate(uint256 _rewardRate) external onlyAdmin {
+        rewardRate = _rewardRate;
     }
 }
